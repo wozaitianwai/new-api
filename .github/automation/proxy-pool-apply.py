@@ -32,6 +32,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 '''
 
+PROXY_POOL_TEST_PATH = "web/src/features/channels/lib/proxy-pool.test.js"
+
 
 def apply_replay_reader_isolation() -> None:
     replace_once(
@@ -73,16 +75,23 @@ def apply_replay_reader_isolation() -> None:
     )
 
 
+def prepare_proxy_pool_javascript_test() -> None:
+    typescript_path = "web/src/features/channels/lib/proxy-pool.test.ts"
+    write_frontend_tests()
+    content = read(typescript_path)
+    write(PROXY_POOL_TEST_PATH, content)
+    repo_path(typescript_path).unlink()
+
+
 def ensure_proxy_pool_test_header() -> None:
-    path = "web/src/features/channels/lib/proxy-pool.test.ts"
-    content = read(path)
+    content = read(PROXY_POOL_TEST_PATH)
     if not content.startswith("/*"):
-        write(path, COPYRIGHT_HEADER + content)
+        write(PROXY_POOL_TEST_PATH, COPYRIGHT_HEADER + content)
 
 
 def assert_feature_copyright_headers() -> None:
     for path in (
-        "web/src/features/channels/lib/proxy-pool.test.ts",
+        PROXY_POOL_TEST_PATH,
         "web/src/features/channels/components/proxy-pool-fields.tsx",
     ):
         content = read(path)
@@ -132,10 +141,10 @@ def update_docs() -> None:
 
 def execute_frontend() -> None:
     web_root = repo_path("web")
-    write_frontend_tests()
+    prepare_proxy_pool_javascript_test()
     ensure_proxy_pool_test_header()
     run(
-        ["bun", "test", "src/features/channels/lib/proxy-pool.test.ts"],
+        ["bun", "test", "src/features/channels/lib/proxy-pool.test.js"],
         cwd=web_root,
         expect_failure=True,
     )
@@ -148,7 +157,7 @@ def execute_frontend() -> None:
         "src/features/channels/types.ts",
         "src/features/channels/lib/channel-form.ts",
         "src/features/channels/lib/channel-form-errors.ts",
-        "src/features/channels/lib/proxy-pool.test.ts",
+        "src/features/channels/lib/proxy-pool.test.js",
         "src/features/channels/components/proxy-pool-fields.tsx",
         "src/features/channels/components/drawers/channel-mutate-drawer.tsx",
     ]
@@ -159,7 +168,7 @@ def execute_frontend() -> None:
     run(["bun", "x", "oxfmt", "--write", *changed_files], cwd=web_root)
     assert_feature_copyright_headers()
     run(
-        ["bun", "test", "src/features/channels/lib/proxy-pool.test.ts"],
+        ["bun", "test", "src/features/channels/lib/proxy-pool.test.js"],
         cwd=web_root,
     )
 
