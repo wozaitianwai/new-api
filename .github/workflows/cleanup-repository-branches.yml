@@ -1,0 +1,59 @@
+name: Cleanup repository branches
+
+on:
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - .github/branch-cleanup-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.head_ref == 'cleanup/branches'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Delete all branches except main and develop
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          report="branch-cleanup-report.txt"
+          echo "=== before ===" > "$report"
+          git ls-remote --heads origin | awk '{sub("refs/heads/", "", $2); print $2}' | sort | tee -a "$report"
+
+          rm -f .github/workflows/cleanup-repository-branches.yml
+          git add -A
+          git commit -m "chore: remove temporary branch cleanup workflow"
+          git push origin HEAD:develop
+
+          while IFS= read -r branch; do
+            case "$branch" in
+              main|develop) continue ;;
+            esac
+            git push origin --delete "$branch"
+          done < <(git ls-remote --heads origin | awk '{sub("refs/heads/", "", $2); print $2}')
+
+          echo "=== after ===" >> "$report"
+          git ls-remote --heads origin | awk '{sub("refs/heads/", "", $2); print $2}' | sort | tee -a "$report"
+
+      - name: Upload branch cleanup report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-cleanup-report
+          path: branch-cleanup-report.txt
+          if-no-files-found: error
+          retention-days: 3
