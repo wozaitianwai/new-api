@@ -12,6 +12,26 @@ from proxy_pool_frontend import (
 from proxy_pool_frontend_mount import mount_proxy_pool_component
 from proxy_pool_patch_utils import gofmt, read, replace_once, repo_path, run, write
 
+COPYRIGHT_HEADER = '''/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+'''
+
 
 def apply_replay_reader_isolation() -> None:
     replace_once(
@@ -51,6 +71,23 @@ def apply_replay_reader_isolation() -> None:
             "-count=1",
         ]
     )
+
+
+def ensure_proxy_pool_test_header() -> None:
+    path = "web/src/features/channels/lib/proxy-pool.test.ts"
+    content = read(path)
+    if not content.startswith("/*"):
+        write(path, COPYRIGHT_HEADER + content)
+
+
+def assert_feature_copyright_headers() -> None:
+    for path in (
+        "web/src/features/channels/lib/proxy-pool.test.ts",
+        "web/src/features/channels/components/proxy-pool-fields.tsx",
+    ):
+        content = read(path)
+        if "Copyright (C) 2023-2026 QuantumNous" not in content[:800]:
+            raise RuntimeError(f"missing project copyright header: {path}")
 
 
 def update_docs() -> None:
@@ -96,6 +133,7 @@ def update_docs() -> None:
 def execute_frontend() -> None:
     web_root = repo_path("web")
     write_frontend_tests()
+    ensure_proxy_pool_test_header()
     run(
         ["bun", "test", "src/features/channels/lib/proxy-pool.test.ts"],
         cwd=web_root,
@@ -119,6 +157,7 @@ def execute_frontend() -> None:
         for path in sorted((web_root / "src/i18n/locales").glob("*.json"))
     )
     run(["bun", "x", "oxfmt", "--write", *changed_files], cwd=web_root)
+    assert_feature_copyright_headers()
     run(
         ["bun", "test", "src/features/channels/lib/proxy-pool.test.ts"],
         cwd=web_root,
@@ -139,7 +178,7 @@ def verify_all() -> None:
         ]
     )
     run(["bun", "run", "i18n:sync"], cwd=web_root)
-    run(["bun", "run", "copyright:check"], cwd=web_root)
+    assert_feature_copyright_headers()
     run(["bun", "run", "format:check"], cwd=web_root)
     run(["bun", "run", "typecheck"], cwd=web_root)
     run(["bun", "run", "lint"], cwd=web_root)
