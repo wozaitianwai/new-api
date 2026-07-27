@@ -10,7 +10,47 @@ from proxy_pool_frontend import (
     write_proxy_pool_component,
 )
 from proxy_pool_frontend_mount import mount_proxy_pool_component
-from proxy_pool_patch_utils import read, repo_path, run, write
+from proxy_pool_patch_utils import gofmt, read, replace_once, repo_path, run, write
+
+
+def apply_replay_reader_isolation() -> None:
+    replace_once(
+        "relay/common/outbound_body.go",
+        '''import (
+	"io"
+	"net/http"''',
+        '''import (
+	"bytes"
+	"io"
+	"net/http"''',
+    )
+    replace_once(
+        "relay/common/outbound_body.go",
+        '''func (body *replayableBody) NewRequestBody() (io.ReadCloser, error) {
+	if _, err := body.storage.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	return io.NopCloser(rootcommon.ReaderOnly(body.storage)), nil
+}''',
+        '''func (body *replayableBody) NewRequestBody() (io.ReadCloser, error) {
+	data, err := body.storage.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}''',
+    )
+    gofmt("relay/common/outbound_body.go")
+    run(
+        [
+            "go",
+            "test",
+            "./relay/common",
+            "-run",
+            "TestOutboundJSONBody",
+            "-count=1",
+        ]
+    )
 
 
 def update_docs() -> None:
@@ -110,6 +150,7 @@ def verify_all() -> None:
 def main() -> None:
     print("Applying channel proxy pool implementation")
     execute_core()
+    apply_replay_reader_isolation()
     execute_relay()
     execute_frontend()
     update_docs()
