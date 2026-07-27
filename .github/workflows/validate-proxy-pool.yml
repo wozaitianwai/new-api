@@ -3,16 +3,9 @@ name: Validate proxy pool implementation
 on:
   pull_request:
     branches:
-      - main
+      - feat/proxy-pool-failover
     paths:
-      - .github/workflows/validate-proxy-pool.yml
-      - dto/channel_settings.go
-      - model/channel*.go
-      - relay/channel/api_request*.go
-      - relay/common/outbound_body*.go
-      - service/proxy_pool*.go
-      - web/src/features/channels/**
-      - web/src/i18n/locales/*.json
+      - .github/validation-trigger
 
 permissions:
   contents: read
