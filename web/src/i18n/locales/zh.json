@@ -5216,5 +5216,27 @@
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
     "Zoom": "缩放"
-  }
+  },
+  "Enable proxy pool": "启用代理池",
+  "Rotate outbound requests across multiple channel proxies.": "在多个渠道代理之间轮询上游请求。",
+  "Proxy addresses": "代理地址列表",
+  "One proxy URL per row. Requests start from the next proxy in order.": "每行一个代理地址，新请求按顺序选择下一个代理。",
+  "Add proxy": "添加代理",
+  "Remove proxy": "删除代理",
+  "No proxies configured.": "尚未配置代理。",
+  "{{count}} unique proxies": "{{count}} 个唯一代理",
+  "Proxy address {{index}}": "代理地址 {{index}}",
+  "Switch on network errors": "网络错误时切换代理",
+  "TCP, TLS, HTTP proxy, and SOCKS connection failures switch to the next proxy.": "TCP、TLS、HTTP 代理或 SOCKS 连接失败时切换到下一个代理。",
+  "HTTP statuses that switch proxy": "触发代理切换的 HTTP 状态码",
+  "Selected statuses retry through the next proxy without marking the proxy unhealthy.": "命中所选状态码时使用下一个代理重试，但不会将当前代理标记为故障。",
+  "Custom status code": "自定义状态码",
+  "Add status": "添加状态码",
+  "Maximum attempts": "单次请求最大尝试次数",
+  "Includes the first proxy attempt and is capped by the proxy count.": "包含首次代理请求，实际次数不会超过代理数量。",
+  "Network-error cooldown (seconds)": "网络错误冷却时间（秒）",
+  "Only network failures cool a proxy. HTTP status failover does not.": "只有网络失败会使代理进入冷却；HTTP 状态码切换不会。",
+  "Single Proxy / Fallback": "单代理 / 回退代理",
+  "Used when the proxy pool is disabled or empty. Supports HTTP, HTTPS, SOCKS5, and SOCKS5H.": "代理池关闭或为空时使用。支持 HTTP、HTTPS、SOCKS5 和 SOCKS5H。",
+  "Proxy pool status codes must be integers from 400 to 599": "代理池状态码必须是 400 到 599 的整数"
 }

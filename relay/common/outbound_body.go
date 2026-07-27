@@ -1,31 +1,52 @@
 package common
 
 import (
+	"bytes"
 	"io"
+	"net/http"
 
-	"github.com/QuantumNous/new-api/common"
+	rootcommon "github.com/QuantumNous/new-api/common"
 )
 
+type RequestBodyReplayer interface {
+	NewRequestBody() (io.ReadCloser, error)
+}
+
+type replayableBody struct{ storage rootcommon.BodyStorage }
+
+func (body *replayableBody) Read(buffer []byte) (int, error) { return body.storage.Read(buffer) }
+
+func (body *replayableBody) NewRequestBody() (io.ReadCloser, error) {
+	data, err := body.storage.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+// AttachRequestBodyReplay configures req.GetBody when body knows how to rewind
+// itself. Existing net/http GetBody implementations are preserved.
+func AttachRequestBodyReplay(req *http.Request, body io.Reader) {
+	if req == nil || req.GetBody != nil {
+		return
+	}
+	if body == nil {
+		req.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
+		return
+	}
+	replayer, ok := body.(RequestBodyReplayer)
+	if !ok {
+		return
+	}
+	req.GetBody = replayer.NewRequestBody
+}
+
 // NewOutboundJSONBody wraps the already-marshaled upstream request body into a
-// BodyStorage. When disk cache is enabled and the payload exceeds the configured
-// threshold, the data is written to a temp file and the original []byte can be
-// GC'd, significantly reducing the heap residency while waiting for the
-// upstream provider to respond (the dominant cost for large base64 payloads).
-//
-// In memory mode the underlying memoryStorage reuses the same backing array,
-// so this is equivalent to bytes.NewReader(data) in terms of memory usage.
-//
-// The caller MUST invoke closer.Close() once the upstream call has finished
-// (typically via defer) to release the disk file / memory accounting.
-//
-// The returned reader is wrapped with common.ReaderOnly to prevent the HTTP
-// transport from prematurely closing the underlying BodyStorage. The returned
-// size is meant to be propagated to http.Request.ContentLength because the
-// type-erased io.Reader prevents net/http from auto-detecting it.
+// BodyStorage. The caller must close the returned closer after the upstream call.
 func NewOutboundJSONBody(data []byte) (body io.Reader, size int64, closer io.Closer, err error) {
-	storage, err := common.CreateBodyStorage(data)
+	storage, err := rootcommon.CreateBodyStorage(data)
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	return common.ReaderOnly(storage), storage.Size(), storage, nil
+	return &replayableBody{storage: storage}, storage.Size(), storage, nil
 }

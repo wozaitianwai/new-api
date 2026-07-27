@@ -182,6 +182,7 @@ import {
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
+import { ProxyPoolFields } from '../proxy-pool-fields'
 import {
   ChannelAdvancedSection,
   ChannelApiAccessSection,
@@ -284,6 +285,12 @@ const SENSITIVE_FORM_FIELDS = [
   'force_format',
   'thinking_to_content',
   'proxy',
+  'proxy_pool_enabled',
+  'proxy_pool',
+  'proxy_failover_network_errors',
+  'proxy_failover_status_codes',
+  'proxy_failover_max_attempts',
+  'proxy_cooldown_seconds',
   'pass_through_body_enabled',
   'system_prompt',
   'system_prompt_override',
@@ -334,6 +341,8 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.priority ||
     values.weight ||
     values.proxy?.trim() ||
+    values.proxy_pool_enabled ||
+    values.proxy_pool?.some((proxyURL) => proxyURL.trim()) ||
     values.system_prompt?.trim() ||
     values.force_format ||
     values.thinking_to_content ||
@@ -4166,7 +4175,9 @@ export function ChannelMutateDrawer({
                               name='proxy'
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>{t('Proxy Address')}</FormLabel>
+                                  <FormLabel>
+                                    {t('Single Proxy / Fallback')}
+                                  </FormLabel>
                                   <FormControl>
                                     <Input
                                       placeholder={t(
@@ -4177,12 +4188,16 @@ export function ChannelMutateDrawer({
                                   </FormControl>
                                   <FormDescription>
                                     {t(
-                                      'Network proxy for this channel (supports HTTP, HTTPS, SOCKS5, and SOCKS5H)'
+                                      'Used when the proxy pool is disabled or empty. Supports HTTP, HTTPS, SOCKS5, and SOCKS5H.'
                                     )}
                                   </FormDescription>
                                   <FormMessage />
                                 </FormItem>
                               )}
+                            />
+
+                            <ProxyPoolFields
+                              disabled={sensitiveLocked || isSubmitting}
                             />
 
                             <FormField

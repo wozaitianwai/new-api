@@ -224,6 +224,22 @@ export const channelFormSchema = z
       .string()
       .optional()
       .refine(isOptionalProxyURL, ERROR_MESSAGES.INVALID_PROXY),
+    proxy_pool_enabled: z.boolean().optional(),
+    proxy_pool: z
+      .array(
+        z.string().refine(isOptionalProxyURL, ERROR_MESSAGES.INVALID_PROXY)
+      )
+      .optional(),
+    proxy_failover_network_errors: z.boolean().optional(),
+    proxy_failover_status_codes: z
+      .array(z.number().int().min(400).max(599))
+      .refine(
+        (statusCodes) => new Set(statusCodes).size === statusCodes.length,
+        'Proxy failover status codes must be unique'
+      )
+      .optional(),
+    proxy_failover_max_attempts: z.number().int().min(1).max(10).optional(),
+    proxy_cooldown_seconds: z.number().int().min(0).max(3600).optional(),
     pass_through_body_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
@@ -247,6 +263,17 @@ export const channelFormSchema = z
     upstream_model_update_ignored_models: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (
+      data.proxy_pool_enabled &&
+      !(data.proxy_pool || []).some((proxyURL) => proxyURL.trim())
+    ) {
+      addRequiredIssue(
+        ctx,
+        'proxy_pool',
+        'Proxy pool requires at least one proxy address'
+      )
+    }
+
     if ([3, 8, 36, 45].includes(data.type) && !data.base_url?.trim()) {
       addRequiredIssue(
         ctx,
@@ -374,6 +401,12 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   force_format: false,
   thinking_to_content: false,
   proxy: '',
+  proxy_pool_enabled: false,
+  proxy_pool: [],
+  proxy_failover_network_errors: true,
+  proxy_failover_status_codes: [429, 502, 503, 504],
+  proxy_failover_max_attempts: 3,
+  proxy_cooldown_seconds: 60,
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
@@ -412,6 +445,12 @@ export function transformChannelToFormDefaults(
     force_format: false,
     thinking_to_content: false,
     proxy: '',
+    proxy_pool_enabled: false,
+    proxy_pool: [] as string[],
+    proxy_failover_network_errors: true,
+    proxy_failover_status_codes: [429, 502, 503, 504] as number[],
+    proxy_failover_max_attempts: 3,
+    proxy_cooldown_seconds: 60,
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
@@ -424,6 +463,32 @@ export function transformChannelToFormDefaults(
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
+        proxy_pool_enabled: parsed.proxy_pool_enabled === true,
+        proxy_pool: Array.isArray(parsed.proxy_pool)
+          ? parsed.proxy_pool.filter(
+              (value: unknown): value is string => typeof value === 'string'
+            )
+          : [],
+        proxy_failover_network_errors:
+          parsed.proxy_failover_network_errors !== false,
+        proxy_failover_status_codes: Array.isArray(
+          parsed.proxy_failover_status_codes
+        )
+          ? parsed.proxy_failover_status_codes.filter(
+              (value: unknown): value is number =>
+                Number.isInteger(value) &&
+                Number(value) >= 400 &&
+                Number(value) <= 599
+            )
+          : [429, 502, 503, 504],
+        proxy_failover_max_attempts: Number.isInteger(
+          parsed.proxy_failover_max_attempts
+        )
+          ? parsed.proxy_failover_max_attempts
+          : 3,
+        proxy_cooldown_seconds: Number.isInteger(parsed.proxy_cooldown_seconds)
+          ? parsed.proxy_cooldown_seconds
+          : 60,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
@@ -541,6 +606,21 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     force_format: formData.force_format || false,
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy?.trim() || '',
+    proxy_pool_enabled: formData.proxy_pool_enabled === true,
+    proxy_pool: [
+      ...new Set(
+        (formData.proxy_pool || [])
+          .map((proxyURL) => proxyURL.trim())
+          .filter(Boolean)
+      ),
+    ],
+    proxy_failover_network_errors:
+      formData.proxy_failover_network_errors !== false,
+    proxy_failover_status_codes: [
+      ...new Set(formData.proxy_failover_status_codes || []),
+    ],
+    proxy_failover_max_attempts: formData.proxy_failover_max_attempts || 3,
+    proxy_cooldown_seconds: formData.proxy_cooldown_seconds ?? 60,
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
