@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useFormContext, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -58,12 +58,32 @@ export function ProxyPoolFields(props: ProxyPoolFieldsProps) {
       name: 'proxy_failover_status_codes',
     }) || []
   const controlsDisabled = props.disabled || !enabled
+  const proxyRowIds = useRef<string[]>([])
+  const nextProxyRowId = useRef(0)
+
+  const createProxyRowId = () => {
+    const rowId = `proxy-row-${nextProxyRowId.current}`
+    nextProxyRowId.current += 1
+    return rowId
+  }
+
+  while (proxyRowIds.current.length < proxyPool.length) {
+    proxyRowIds.current.push(createProxyRowId())
+  }
+  if (proxyRowIds.current.length > proxyPool.length) {
+    proxyRowIds.current.length = proxyPool.length
+  }
 
   const setProxyPool = (nextProxyPool: string[]) => {
     form.setValue('proxy_pool', nextProxyPool, {
       shouldDirty: true,
       shouldValidate: true,
     })
+  }
+
+  const addProxy = () => {
+    proxyRowIds.current.push(createProxyRowId())
+    setProxyPool([...proxyPool, ''])
   }
 
   const updateProxy = (index: number, value: string) => {
@@ -75,6 +95,7 @@ export function ProxyPoolFields(props: ProxyPoolFieldsProps) {
   }
 
   const removeProxy = (index: number) => {
+    proxyRowIds.current.splice(index, 1)
     setProxyPool(proxyPool.filter((_, proxyIndex) => proxyIndex !== index))
   }
 
@@ -111,16 +132,11 @@ export function ProxyPoolFields(props: ProxyPoolFieldsProps) {
   const uniqueProxyCount = new Set(
     proxyPool.map((proxyURL) => proxyURL.trim()).filter(Boolean)
   ).size
-  const proxyRows = proxyPool.map((proxyURL, index) => {
-    const occurrence = proxyPool
-      .slice(0, index + 1)
-      .filter((value) => value === proxyURL).length
-    return {
-      index,
-      proxyURL,
-      rowKey: `${proxyURL || 'empty-proxy'}-${occurrence}`,
-    }
-  })
+  const proxyRows = proxyPool.map((proxyURL, index) => ({
+    index,
+    proxyURL,
+    rowKey: proxyRowIds.current[index],
+  }))
 
   return (
     <div className='border-border/60 space-y-4 rounded-lg border p-4'>
@@ -165,7 +181,7 @@ export function ProxyPoolFields(props: ProxyPoolFieldsProps) {
                 variant='outline'
                 size='sm'
                 disabled={controlsDisabled}
-                onClick={() => setProxyPool([...proxyPool, ''])}
+                onClick={addProxy}
               >
                 <Plus className='mr-2 h-4 w-4' aria-hidden='true' />
                 {t('Add proxy')}
