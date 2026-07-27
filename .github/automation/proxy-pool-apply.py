@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+from proxy_pool_backend_core import execute_core
+from proxy_pool_backend_relay import execute_relay
+from proxy_pool_frontend import (
+    add_translations,
+    apply_frontend_types_and_form,
+    write_frontend_tests,
+    write_proxy_pool_component,
+)
+from proxy_pool_frontend_mount import mount_proxy_pool_component
+from proxy_pool_patch_utils import read, repo_path, run, write
+
+
+def update_docs() -> None:
+    path = "docs/channel/other_setting.md"
+    content = read(path)
+    if "## 代理池与故障切换" in content:
+        return
+    appendix = r'''
+
+## 代理池与故障切换
+
+渠道可以在保留单代理 `proxy` 的同时启用有序代理池：
+
+```json
+{
+  "proxy": "socks5://127.0.0.1:1080",
+  "proxy_pool_enabled": true,
+  "proxy_pool": [
+    "socks5://127.0.0.1:1080",
+    "http://user:pass@10.0.0.2:8080"
+  ],
+  "proxy_failover_network_errors": true,
+  "proxy_failover_status_codes": [400, 401, 403, 404, 429, 502, 503, 504],
+  "proxy_failover_max_attempts": 3,
+  "proxy_cooldown_seconds": 60
+}
+```
+
+- `proxy_pool_enabled`：启用后，新请求按渠道独立轮询代理池。
+- `proxy_pool`：有序代理 URL 列表，支持 HTTP、HTTPS、SOCKS5、SOCKS5H；重复地址会在运行时去重。
+- `proxy_failover_network_errors`：TCP、TLS、HTTP 代理、SOCKS 等连接错误是否切换代理，默认开启。
+- `proxy_failover_status_codes`：命中任一 `400`–`599` 状态码时切换到下一个代理。状态码切换不会把代理标记为故障。
+- `proxy_failover_max_attempts`：包含首次请求，默认 `3`，范围 `1`–`10`，且不会超过代理数量。
+- `proxy_cooldown_seconds`：网络错误代理的冷却时间，默认 `60` 秒，范围 `0`–`3600`；设为 `0` 表示不冷却。
+
+只有在请求体能够安全重放且响应尚未交给下游时才会切换代理。流式响应一旦进入处理阶段便不会重试。代理池关闭时继续使用原有 `proxy`；两者均为空时使用默认直连客户端。
+
+轮询索引和冷却状态保存在应用进程内。多实例部署时，各实例独立轮询，重启后状态清空。
+'''
+    write(path, content.rstrip() + appendix + "\n")
+
+
+def execute_frontend() -> None:
+    web_root = repo_path("web")
+    write_frontend_tests()
+    run(
+        ["bun", "test", "src/features/channels/lib/proxy-pool.test.ts"],
+        cwd=web_root,
+        expect_failure=True,
+    )
+    apply_frontend_types_and_form()
+    write_proxy_pool_component()
+    mount_proxy_pool_component()
+    add_translations()
+
+    changed_files = [
+        "src/features/channels/types.ts",
+        "src/features/channels/lib/channel-form.ts",
+        "src/features/channels/lib/channel-form-errors.ts",
+        "src/features/channels/lib/proxy-pool.test.ts",
+        "src/features/channels/components/proxy-pool-fields.tsx",
+        "src/features/channels/components/drawers/channel-mutate-drawer.tsx",
+    ]
+    changed_files.extend(
+        str(path.relative_to(web_root))
+        for path in sorted((web_root / "src/i18n/locales").glob("*.json"))
+    )
+    run(["bun", "x", "oxfmt", "--write", *changed_files], cwd=web_root)
+    run(
+        ["bun", "test", "src/features/channels/lib/proxy-pool.test.ts"],
+        cwd=web_root,
+    )
+
+
+def verify_all() -> None:
+    web_root = repo_path("web")
+    run(
+        [
+            "go",
+            "test",
+            "./service",
+            "./relay/common",
+            "./relay/channel",
+            "./model",
+            "-count=1",
+        ]
+    )
+    run(["bun", "run", "i18n:sync"], cwd=web_root)
+    run(["bun", "run", "copyright:check"], cwd=web_root)
+    run(["bun", "run", "format:check"], cwd=web_root)
+    run(["bun", "run", "typecheck"], cwd=web_root)
+    run(["bun", "run", "lint"], cwd=web_root)
+    run(["bun", "run", "build"], cwd=web_root)
+    run(["go", "test", "./...", "-count=1"])
+
+
+def main() -> None:
+    print("Applying channel proxy pool implementation")
+    execute_core()
+    execute_relay()
+    execute_frontend()
+    update_docs()
+    verify_all()
+    print("Proxy pool implementation completed and verified")
+
+
+if __name__ == "__main__":
+    main()
