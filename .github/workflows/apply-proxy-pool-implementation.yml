@@ -1,11 +1,6 @@
 name: Apply proxy pool implementation
 
 on:
-  push:
-    branches:
-      - feat/proxy-pool-failover
-    paths:
-      - .github/automation/proxy-pool-apply.py
   pull_request:
     branches:
       - main
@@ -19,7 +14,7 @@ permissions:
 
 concurrency:
   group: proxy-pool-implementation
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   apply:
