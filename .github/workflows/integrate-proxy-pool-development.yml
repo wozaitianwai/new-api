@@ -25,6 +25,8 @@ jobs:
         shell: bash
         run: |
           set +e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin feat/proxy-pool-failover
           git merge --no-commit --no-ff origin/feat/proxy-pool-failover > integration-report.txt 2>&1
           rc=$?
