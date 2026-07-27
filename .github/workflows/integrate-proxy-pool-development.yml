@@ -1,0 +1,47 @@
+name: Integrate proxy pool development
+
+on:
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - .github/integration-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Attempt feature merge
+        shell: bash
+        run: |
+          set +e
+          git fetch origin feat/proxy-pool-failover
+          git merge --no-commit --no-ff origin/feat/proxy-pool-failover > integration-report.txt 2>&1
+          rc=$?
+          {
+            echo
+            echo "=== exit code: $rc ==="
+            echo "=== status ==="
+            git status --short
+            echo "=== conflicts ==="
+            git diff --name-only --diff-filter=U
+          } >> integration-report.txt
+          exit $rc
+
+      - name: Upload integration report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-pool-integration-report
+          path: integration-report.txt
+          retention-days: 3
