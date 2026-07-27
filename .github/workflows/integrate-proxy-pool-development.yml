@@ -36,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          exec > >(tee integration-report.txt) 2>&1
+          exec > >(tee /tmp/integration-report.txt) 2>&1
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -59,7 +59,6 @@ jobs:
             git checkout --theirs "$expected_conflict"
             python3 - <<'PY'
           from pathlib import Path
-          import re
 
           path = Path("web/src/features/channels/lib/channel-form.ts")
           text = path.read_text()
@@ -91,6 +90,14 @@ jobs:
             relay/channel/api_request_proxy_pool_test.go; do
             sed -i 's#github.com/QuantumNous/new-api/dto#github.com/QuantumNous/new-api/relaykit/dto#g' "$file"
           done
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          for filename in ["docs/channel/other_setting.md"]:
+              path = Path(filename)
+              path.write_text(path.read_text().rstrip() + "\n")
+          PY
 
           gofmt -w \
             relaykit/dto/channel_settings.go \
@@ -153,6 +160,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proxy-pool-integration-report
-          path: integration-report.txt
+          path: /tmp/integration-report.txt
           if-no-files-found: warn
           retention-days: 3
