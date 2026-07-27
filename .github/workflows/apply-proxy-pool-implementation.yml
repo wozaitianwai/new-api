@@ -1,26 +1,23 @@
-name: Apply proxy pool implementation
+name: Clean proxy pool implementation helpers
 
 on:
   pull_request:
     branches:
       - main
     paths:
-      - .github/automation/proxy-pool-apply.py
-      - .github/automation/proxy_pool_*.py
       - .github/workflows/apply-proxy-pool-implementation.yml
 
 permissions:
   contents: write
 
 concurrency:
-  group: proxy-pool-implementation
+  group: proxy-pool-implementation-cleanup
   cancel-in-progress: true
 
 jobs:
-  apply:
+  cleanup:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
 
     steps:
       - name: Checkout feature branch
@@ -29,41 +26,16 @@ jobs:
           fetch-depth: 0
           ref: feat/proxy-pool-failover
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Remove implementation-only files
+        run: |
+          rm -rf .github/automation
+          rm -f .github/workflows/apply-proxy-pool-implementation.yml
+          rm -f proxy-pool-implementation.log
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install frontend dependencies
-        working-directory: web
-        run: bun install --frozen-lockfile
-
-      - name: Apply implementation with test-first checks
-        run: python3 .github/automation/proxy-pool-apply.py > proxy-pool-implementation.log 2>&1
-
-      - name: Upload implementation log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: proxy-pool-implementation-log
-          path: proxy-pool-implementation.log
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Commit implementation
+      - name: Commit cleanup
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --cached --quiet; then
-            echo "No implementation changes were produced"
-            exit 1
-          fi
-          git commit -m "feat: add channel proxy pool failover"
+          git commit -m "chore: remove proxy pool implementation helpers"
           git push origin HEAD:feat/proxy-pool-failover
