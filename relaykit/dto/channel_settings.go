@@ -11,12 +11,18 @@ import (
 )
 
 type ChannelSettings struct {
-	ForceFormat            bool   `json:"force_format,omitempty"`
-	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
-	Proxy                  string `json:"proxy"`
-	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	ForceFormat                bool     `json:"force_format,omitempty"`
+	ThinkingToContent          bool     `json:"thinking_to_content,omitempty"`
+	Proxy                      string   `json:"proxy"`
+	ProxyPoolEnabled           bool     `json:"proxy_pool_enabled,omitempty"`
+	ProxyPool                  []string `json:"proxy_pool,omitempty"`
+	ProxyFailoverNetworkErrors *bool    `json:"proxy_failover_network_errors,omitempty"`
+	ProxyFailoverStatusCodes   []int    `json:"proxy_failover_status_codes,omitempty"`
+	ProxyFailoverMaxAttempts   int      `json:"proxy_failover_max_attempts,omitempty"`
+	ProxyCooldownSeconds       *int     `json:"proxy_cooldown_seconds,omitempty"`
+	PassThroughBodyEnabled     bool     `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt               string   `json:"system_prompt,omitempty"`
+	SystemPromptOverride       bool     `json:"system_prompt_override,omitempty"`
 }
 
 type VertexKeyType string

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -310,10 +311,11 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
+	common.AttachRequestBodyReplay(req, requestBody)
 	applyUpstreamContentLength(req, info)
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
@@ -340,10 +342,11 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
+	common.AttachRequestBodyReplay(req, requestBody)
 	applyUpstreamContentLength(req, info)
 	// set form data
 	req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
@@ -475,27 +478,14 @@ func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	return doRequest(c, req, info)
 }
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
-	var client *http.Client
-	var err error
-	if info.ChannelSetting.Proxy != "" {
-		client, err = service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
-		if err != nil {
-			return nil, fmt.Errorf("new proxy http client failed: %w", err)
-		}
-	} else {
-		client = service.GetHttpClient()
-	}
-
 	var stopPinger context.CancelFunc
 	var pingerDone <-chan struct{}
 	if info.IsStream {
 		helper.SetEventStreamHeaders(c)
-		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
 		if generalSettings.PingIntervalEnabled && !info.DisablePing {
 			pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
 			stopPinger, pingerDone = startPingKeepAlive(c, pingInterval)
-			// 使用defer确保在任何情况下都能停止ping goroutine
 			defer func() {
 				if stopPinger != nil {
 					stopPinger()
@@ -506,22 +496,137 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	if info == nil || info.ChannelMeta == nil || !info.ChannelSetting.ProxyPoolEnabled {
+		var client *http.Client
+		var err error
+		if info != nil && info.ChannelMeta != nil && info.ChannelSetting.Proxy != "" {
+			client, err = service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
+			if err != nil {
+				return nil, fmt.Errorf("new proxy http client failed: %w", err)
+			}
+		} else {
+			client = service.GetHttpClient()
+		}
+		return executeOutboundRequest(c, client, req)
+	}
+
+	plan, err := service.PrepareProxyPoolAttempts(info.ChannelId, info.ChannelSetting)
+	if err != nil {
+		return nil, fmt.Errorf("prepare proxy pool failed: %w", err)
+	}
+	if plan == nil || len(plan.ProxyURLs) == 0 {
+		return executeOutboundRequest(c, service.GetHttpClient(), req)
+	}
+
+	originalRequest := req
+	for attemptIndex, proxyURL := range plan.ProxyURLs {
+		attemptRequest, replayErr := requestForProxyAttempt(originalRequest, attemptIndex)
+		if replayErr != nil {
+			if attemptIndex == 0 {
+				return nil, replayErr
+			}
+			break
+		}
+		client, clientErr := service.GetHttpClientWithProxy(proxyURL)
+		if clientErr != nil {
+			return nil, fmt.Errorf("new proxy http client failed: %w", clientErr)
+		}
+
+		resp, requestErr := client.Do(attemptRequest)
+		if requestErr != nil {
+			logger.LogError(c, "do request failed: "+requestErr.Error())
+			if requestContextDone(c, attemptRequest) {
+				return nil, newOutboundRequestError(requestErr)
+			}
+			if plan.FailoverNetworkErrors {
+				service.MarkProxyNetworkFailure(info.ChannelId, plan.Fingerprint, proxyURL, plan.Cooldown)
+			}
+			if !plan.FailoverNetworkErrors || attemptIndex+1 >= len(plan.ProxyURLs) || !requestCanReplay(originalRequest) {
+				return nil, newOutboundRequestError(requestErr)
+			}
+			logger.LogDebug(c, "proxy pool network failover: channel_id=%d attempt=%d/%d proxy=%s", info.ChannelId, attemptIndex+1, len(plan.ProxyURLs), sanitizeProxyEndpoint(proxyURL))
+			continue
+		}
+		if resp == nil {
+			return nil, errors.New("resp is nil")
+		}
+		if plan.ShouldFailoverStatus(resp.StatusCode) && attemptIndex+1 < len(plan.ProxyURLs) && requestCanReplay(originalRequest) {
+			_ = resp.Body.Close()
+			logger.LogDebug(c, "proxy pool status failover: channel_id=%d attempt=%d/%d proxy=%s status=%d", info.ChannelId, attemptIndex+1, len(plan.ProxyURLs), sanitizeProxyEndpoint(proxyURL), resp.StatusCode)
+			continue
+		}
+		return finalizeOutboundResponse(c, attemptRequest, resp)
+	}
+	return nil, newOutboundRequestError(errors.New("proxy pool exhausted without a response"))
+}
+
+func executeOutboundRequest(c *gin.Context, client *http.Client, req *http.Request) (*http.Response, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
-		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
+		return nil, newOutboundRequestError(err)
 	}
 	if resp == nil {
 		return nil, errors.New("resp is nil")
 	}
+	return finalizeOutboundResponse(c, req, resp)
+}
 
+func finalizeOutboundResponse(c *gin.Context, req *http.Request, resp *http.Response) (*http.Response, error) {
 	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
 		c.Set(common2.UpstreamRequestIdKey, upID)
 	}
-
-	_ = req.Body.Close()
-	_ = c.Request.Body.Close()
+	if req.Body != nil {
+		_ = req.Body.Close()
+	}
+	if c != nil && c.Request != nil && c.Request.Body != nil {
+		_ = c.Request.Body.Close()
+	}
 	return resp, nil
+}
+
+func newOutboundRequestError(err error) error {
+	return types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
+}
+
+func requestForProxyAttempt(original *http.Request, attemptIndex int) (*http.Request, error) {
+	if attemptIndex == 0 {
+		return original, nil
+	}
+	if original.GetBody == nil {
+		return nil, errors.New("upstream request body cannot be replayed")
+	}
+	body, err := original.GetBody()
+	if err != nil {
+		return nil, fmt.Errorf("recreate upstream request body: %w", err)
+	}
+	cloned := original.Clone(original.Context())
+	cloned.Body = body
+	cloned.GetBody = original.GetBody
+	cloned.ContentLength = original.ContentLength
+	return cloned, nil
+}
+
+func requestCanReplay(req *http.Request) bool {
+	if req == nil || req.Body == nil || req.Body == http.NoBody {
+		return true
+	}
+	return req.GetBody != nil
+}
+
+func requestContextDone(c *gin.Context, req *http.Request) bool {
+	if req != nil && req.Context().Err() != nil {
+		return true
+	}
+	return c != nil && c.Request != nil && c.Request.Context().Err() != nil
+}
+
+func sanitizeProxyEndpoint(rawProxyURL string) string {
+	parsedURL, err := url.Parse(rawProxyURL)
+	if err != nil {
+		return "invalid-proxy"
+	}
+	return parsedURL.Scheme + "://" + parsedURL.Host
 }
 
 func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
@@ -529,15 +634,12 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
+	common.AttachRequestBodyReplay(req, requestBody)
 	applyUpstreamContentLength(req, info)
-	req.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(requestBody), nil
-	}
-
 	err = a.BuildRequestHeader(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
