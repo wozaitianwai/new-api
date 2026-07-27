@@ -6,6 +6,13 @@ on:
       - feat/proxy-pool-failover
     paths:
       - .github/automation/proxy-pool-apply.py
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/automation/proxy-pool-apply.py
+      - .github/automation/proxy_pool_*.py
+      - .github/workflows/apply-proxy-pool-implementation.yml
 
 permissions:
   contents: write
