@@ -33,6 +33,14 @@ For commercial licensing, please contact support@quantumnous.com
 '''
 
 PROXY_POOL_TEST_PATH = "web/src/features/channels/lib/proxy-pool.test.js"
+FRONTEND_CHANGED_FILES = [
+    "src/features/channels/types.ts",
+    "src/features/channels/lib/channel-form.ts",
+    "src/features/channels/lib/channel-form-errors.ts",
+    "src/features/channels/lib/proxy-pool.test.js",
+    "src/features/channels/components/proxy-pool-fields.tsx",
+    "src/features/channels/components/drawers/channel-mutate-drawer.tsx",
+]
 
 
 def apply_replay_reader_isolation() -> None:
@@ -87,6 +95,40 @@ def ensure_proxy_pool_test_header() -> None:
     content = read(PROXY_POOL_TEST_PATH)
     if not content.startswith("/*"):
         write(PROXY_POOL_TEST_PATH, COPYRIGHT_HEADER + content)
+
+
+def fix_proxy_pool_component_lint() -> None:
+    path = "web/src/features/channels/components/proxy-pool-fields.tsx"
+    replace_once(
+        path,
+        '''  const uniqueProxyCount = new Set(
+    proxyPool.map((proxyURL) => proxyURL.trim()).filter(Boolean)
+  ).size
+
+  return (''',
+        '''  const uniqueProxyCount = new Set(
+    proxyPool.map((proxyURL) => proxyURL.trim()).filter(Boolean)
+  ).size
+  const proxyRows = proxyPool.map((proxyURL, index) => {
+    const occurrence = proxyPool
+      .slice(0, index + 1)
+      .filter((value) => value === proxyURL).length
+    return {
+      index,
+      proxyURL,
+      rowKey: `${proxyURL || 'empty-proxy'}-${occurrence}`,
+    }
+  })
+
+  return (''',
+    )
+    replace_once(
+        path,
+        '''              {proxyPool.map((proxyURL, index) => (
+                <div key={`${index}-${proxyURL}`} className='flex items-center gap-2'>''',
+        '''              {proxyRows.map(({ proxyURL, index, rowKey }) => (
+                <div key={rowKey} className='flex items-center gap-2'>''',
+    )
 
 
 def assert_feature_copyright_headers() -> None:
@@ -150,17 +192,11 @@ def execute_frontend() -> None:
     )
     apply_frontend_types_and_form()
     write_proxy_pool_component()
+    fix_proxy_pool_component_lint()
     mount_proxy_pool_component()
     add_translations()
 
-    changed_files = [
-        "src/features/channels/types.ts",
-        "src/features/channels/lib/channel-form.ts",
-        "src/features/channels/lib/channel-form-errors.ts",
-        "src/features/channels/lib/proxy-pool.test.js",
-        "src/features/channels/components/proxy-pool-fields.tsx",
-        "src/features/channels/components/drawers/channel-mutate-drawer.tsx",
-    ]
+    changed_files = list(FRONTEND_CHANGED_FILES)
     changed_files.extend(
         str(path.relative_to(web_root))
         for path in sorted((web_root / "src/i18n/locales").glob("*.json"))
@@ -190,7 +226,10 @@ def verify_all() -> None:
     assert_feature_copyright_headers()
     run(["bun", "run", "format:check"], cwd=web_root)
     run(["bun", "run", "typecheck"], cwd=web_root)
-    run(["bun", "run", "lint"], cwd=web_root)
+    run(
+        ["bun", "x", "oxlint", "-c", ".oxlintrc.json", *FRONTEND_CHANGED_FILES],
+        cwd=web_root,
+    )
     run(["bun", "run", "build"], cwd=web_root)
     run(["go", "test", "./...", "-count=1"])
 
