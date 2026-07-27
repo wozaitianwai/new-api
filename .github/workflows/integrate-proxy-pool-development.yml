@@ -13,7 +13,7 @@ permissions:
 jobs:
   integrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - name: Checkout develop
         uses: actions/checkout@v4
@@ -21,24 +21,132 @@ jobs:
           ref: develop
           fetch-depth: 0
 
-      - name: Attempt feature merge
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Merge, resolve, and verify
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
+          exec > >(tee integration-report.txt) 2>&1
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin feat/proxy-pool-failover
-          git merge --no-commit --no-ff origin/feat/proxy-pool-failover > integration-report.txt 2>&1
-          rc=$?
-          {
-            echo
-            echo "=== exit code: $rc ==="
-            echo "=== status ==="
-            git status --short
-            echo "=== conflicts ==="
+
+          set +e
+          git merge --no-commit --no-ff origin/feat/proxy-pool-failover
+          merge_rc=$?
+          set -e
+
+          conflicts="$(git diff --name-only --diff-filter=U)"
+          expected_conflict="web/src/features/channels/lib/channel-form.ts"
+          if [ "$merge_rc" -ne 0 ] && [ "$conflicts" != "$expected_conflict" ]; then
+            echo "Unexpected merge conflicts:"
+            printf '%s\n' "$conflicts"
+            exit 1
+          fi
+
+          if [ -n "$conflicts" ]; then
+            git checkout --theirs "$expected_conflict"
+            python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("web/src/features/channels/lib/channel-form.ts")
+          text = path.read_text()
+
+          if "CHANNEL_TYPE_NEW_API" not in text:
+              text = text.replace(
+                  "import {\n  CHANNEL_STATUS,",
+                  "import {\n  CHANNEL_TYPE_NEW_API,\n  CHANNEL_STATUS,",
+                  1,
+              )
+
+          old = "if ([3, 8, 36, 45].includes(data.type) && !data.base_url?.trim()) {"
+          new = """if (
+                [3, 8, 36, 45, CHANNEL_TYPE_NEW_API].includes(data.type) &&
+                !data.base_url?.trim()
+              ) {"""
+          if old not in text:
+              raise SystemExit("base URL validation anchor not found")
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          fi
+
+          for file in \
+            model/channel_proxy_pool.go \
+            model/channel_proxy_pool_test.go \
+            service/proxy_pool.go \
+            service/proxy_pool_test.go \
+            relay/channel/api_request_proxy_pool_test.go; do
+            sed -i 's#github.com/QuantumNous/new-api/dto#github.com/QuantumNous/new-api/relaykit/dto#g' "$file"
+          done
+
+          gofmt -w \
+            relaykit/dto/channel_settings.go \
+            model/channel.go \
+            model/channel_proxy_pool.go \
+            model/channel_proxy_pool_test.go \
+            relay/channel/api_request.go \
+            relay/channel/api_request_proxy_pool_test.go \
+            relay/common/outbound_body.go \
+            relay/common/outbound_body_test.go \
+            service/proxy_pool.go \
+            service/proxy_pool_test.go
+
+          git add -A
+          if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+            echo "Unresolved merge conflicts remain"
             git diff --name-only --diff-filter=U
-          } >> integration-report.txt
-          exit $rc
+            exit 1
+          fi
+          git diff --check --cached
+
+          cd web
+          bun install --frozen-lockfile
+          bun x oxfmt --write \
+            src/features/channels/types.ts \
+            src/features/channels/lib/channel-form.ts \
+            src/features/channels/lib/channel-form-errors.ts \
+            src/features/channels/lib/proxy-pool.test.js \
+            src/features/channels/components/proxy-pool-fields.tsx \
+            src/features/channels/components/drawers/channel-mutate-drawer.tsx \
+            src/i18n/locales/en.json \
+            src/i18n/locales/fr.json \
+            src/i18n/locales/ja.json \
+            src/i18n/locales/ru.json \
+            src/i18n/locales/vi.json \
+            src/i18n/locales/zh-TW.json \
+            src/i18n/locales/zh.json
+          bun test src/features/channels/lib/proxy-pool.test.js
+          bun run typecheck
+          bun x oxlint -c .oxlintrc.json \
+            src/features/channels/types.ts \
+            src/features/channels/lib/channel-form.ts \
+            src/features/channels/lib/channel-form-errors.ts \
+            src/features/channels/lib/proxy-pool.test.js \
+            src/features/channels/components/proxy-pool-fields.tsx \
+            src/features/channels/components/drawers/channel-mutate-drawer.tsx
+          bun run build
+          cd ..
+
+          go test ./... -count=1
+
+          rm -f .github/workflows/integrate-proxy-pool-development.yml
+          git add -A
+          git diff --check --cached
+          git commit -m "merge: integrate proxy pool feature with latest main"
+          git push origin HEAD:develop
 
       - name: Upload integration report
         if: always()
@@ -46,4 +154,5 @@ jobs:
         with:
           name: proxy-pool-integration-report
           path: integration-report.txt
+          if-no-files-found: warn
           retention-days: 3
