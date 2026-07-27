@@ -5216,5 +5216,27 @@
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
     "Zoom": "ズーム"
-  }
+  },
+  "Enable proxy pool": "Enable proxy pool",
+  "Rotate outbound requests across multiple channel proxies.": "Rotate outbound requests across multiple channel proxies.",
+  "Proxy addresses": "Proxy addresses",
+  "One proxy URL per row. Requests start from the next proxy in order.": "One proxy URL per row. Requests start from the next proxy in order.",
+  "Add proxy": "Add proxy",
+  "Remove proxy": "Remove proxy",
+  "No proxies configured.": "No proxies configured.",
+  "{{count}} unique proxies": "{{count}} unique proxies",
+  "Proxy address {{index}}": "Proxy address {{index}}",
+  "Switch on network errors": "Switch on network errors",
+  "TCP, TLS, HTTP proxy, and SOCKS connection failures switch to the next proxy.": "TCP, TLS, HTTP proxy, and SOCKS connection failures switch to the next proxy.",
+  "HTTP statuses that switch proxy": "HTTP statuses that switch proxy",
+  "Selected statuses retry through the next proxy without marking the proxy unhealthy.": "Selected statuses retry through the next proxy without marking the proxy unhealthy.",
+  "Custom status code": "Custom status code",
+  "Add status": "Add status",
+  "Maximum attempts": "Maximum attempts",
+  "Includes the first proxy attempt and is capped by the proxy count.": "Includes the first proxy attempt and is capped by the proxy count.",
+  "Network-error cooldown (seconds)": "Network-error cooldown (seconds)",
+  "Only network failures cool a proxy. HTTP status failover does not.": "Only network failures cool a proxy. HTTP status failover does not.",
+  "Single Proxy / Fallback": "Single Proxy / Fallback",
+  "Used when the proxy pool is disabled or empty. Supports HTTP, HTTPS, SOCKS5, and SOCKS5H.": "Used when the proxy pool is disabled or empty. Supports HTTP, HTTPS, SOCKS5, and SOCKS5H.",
+  "Proxy pool status codes must be integers from 400 to 599": "Proxy pool status codes must be integers from 400 to 599"
 }

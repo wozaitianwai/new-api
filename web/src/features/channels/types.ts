@@ -83,6 +83,12 @@ export interface ChannelSettings {
   force_format?: boolean
   thinking_to_content?: boolean
   proxy?: string
+  proxy_pool_enabled?: boolean
+  proxy_pool?: string[]
+  proxy_failover_network_errors?: boolean
+  proxy_failover_status_codes?: number[]
+  proxy_failover_max_attempts?: number
+  proxy_cooldown_seconds?: number
   pass_through_body_enabled?: boolean
   system_prompt?: string
   system_prompt_override?: boolean
