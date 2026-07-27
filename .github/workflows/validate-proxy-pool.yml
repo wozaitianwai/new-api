@@ -1,0 +1,85 @@
+name: Validate proxy pool implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/validate-proxy-pool.yml
+      - dto/channel_settings.go
+      - model/channel*.go
+      - relay/channel/api_request*.go
+      - relay/common/outbound_body*.go
+      - service/proxy_pool*.go
+      - web/src/features/channels/**
+      - web/src/i18n/locales/*.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-proxy-pool
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/proxy-pool-failover
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Check proxy pool frontend formatting
+        working-directory: web
+        run: |
+          bun x oxfmt --check \
+            src/features/channels/types.ts \
+            src/features/channels/lib/channel-form.ts \
+            src/features/channels/lib/channel-form-errors.ts \
+            src/features/channels/lib/proxy-pool.test.js \
+            src/features/channels/components/proxy-pool-fields.tsx \
+            src/features/channels/components/drawers/channel-mutate-drawer.tsx
+
+      - name: Run proxy pool frontend tests
+        working-directory: web
+        run: bun test src/features/channels/lib/proxy-pool.test.js
+
+      - name: Type-check frontend
+        working-directory: web
+        run: bun run typecheck
+
+      - name: Lint proxy pool frontend changes
+        working-directory: web
+        run: |
+          bun x oxlint -c .oxlintrc.json \
+            src/features/channels/types.ts \
+            src/features/channels/lib/channel-form.ts \
+            src/features/channels/lib/channel-form-errors.ts \
+            src/features/channels/lib/proxy-pool.test.js \
+            src/features/channels/components/proxy-pool-fields.tsx \
+            src/features/channels/components/drawers/channel-mutate-drawer.tsx
+
+      - name: Build frontend
+        working-directory: web
+        run: bun run build
+
+      - name: Run all Go tests
+        run: go test ./... -count=1
